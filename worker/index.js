@@ -181,9 +181,11 @@ function calculateLynchScore(details) {
   const b = {};
 
   // 1. EPS Growth (20점)
+  // 린치 원칙: 20~50%가 최적. 100% 이상은 적자→흑자 턴어라운드 가능성 높음 (고성장주 아님)
   let epsPct = null;
   if (incH.length >= 2) {
     const c = incH[0]?.netIncome?.raw, p = incH[1]?.netIncome?.raw;
+    // 전년도가 적자였으면 턴어라운드 → EPS 성장률로 쓰지 않음
     if (c && p && p > 0) epsPct = ((c - p) / Math.abs(p)) * 100;
   }
   if (epsPct === null) {
@@ -197,22 +199,30 @@ function calculateLynchScore(details) {
   if (epsPct !== null) {
     b.epsGrowth = `${epsPct.toFixed(1)}%`;
     b.epsGrowthRaw = epsPct;
-    if (epsPct >= 20 && epsPct <= 50) { score += 20; b.epsGrowthStatus = 'optimal'; }
-    else if (epsPct > 50 && epsPct <= 80) { score += 12; b.epsGrowthStatus = 'high'; }
+    if (epsPct >= 20 && epsPct <= 50) { score += 20; b.epsGrowthStatus = 'optimal'; }        // 린치 최적
+    else if (epsPct > 50 && epsPct <= 100) { score += 14; b.epsGrowthStatus = 'high'; }       // 높지만 OK
+    else if (epsPct > 100 && epsPct <= 300) { score += 5; b.epsGrowthStatus = 'turnaround'; } // 턴어라운드 의심
+    else if (epsPct > 300) { score += 0; b.epsGrowthStatus = 'turnaround'; }                  // 거의 확실한 턴어라운드
     else if (epsPct >= 15 && epsPct < 20) { score += 8; b.epsGrowthStatus = 'moderate'; }
     else if (epsPct > 0) { score += 3; b.epsGrowthStatus = 'low'; }
     else { b.epsGrowthStatus = 'negative'; }
   } else { b.epsGrowth = 'N/A'; b.epsGrowthStatus = 'unknown'; }
 
   // 2. PEG (20점)
+  // PEG도 턴어라운드 종목은 비정상적으로 낮게 나오므로 보정
   let pegVal = stats.pegRatio?.raw;
-  if (!pegVal && epsPct && epsPct > 0) {
+  if (!pegVal && epsPct && epsPct > 0 && epsPct <= 200) {
+    // EPS 200% 이하일 때만 PEG 직접 계산 (턴어라운드 제외)
     const pe = sum.trailingPE?.raw || sum.forwardPE?.raw;
     if (pe) pegVal = pe / epsPct;
   }
+  // 야후에서 제공하는 pegRatio가 비정상적으로 낮으면(0.01 미만) 턴어라운드로 간주
   if (pegVal != null && pegVal > 0) {
     b.peg = pegVal.toFixed(2); b.pegRaw = pegVal;
-    if (pegVal < 0.5) { score += 20; b.pegStatus = 'excellent'; }
+    if (pegVal < 0.03 && epsPct > 200) {
+      // 턴어라운드로 인한 비정상 PEG
+      score += 2; b.pegStatus = 'turnaround';
+    } else if (pegVal < 0.5) { score += 20; b.pegStatus = 'excellent'; }
     else if (pegVal < 1.0) { score += 16; b.pegStatus = 'good'; }
     else if (pegVal < 1.5) { score += 8; b.pegStatus = 'fair'; }
     else { b.pegStatus = 'expensive'; }
